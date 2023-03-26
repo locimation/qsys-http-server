@@ -1,0 +1,7 @@
+{
+    "version": "0.1.0",
+    "type": "LuaModule",
+    "author": "michael@locimation.com",
+    "description": "HTTP Server Library for Q-SYS Lua by Locimation Pty Ltd",
+    "requiredVersion": "9.5"
+}
