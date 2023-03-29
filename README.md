@@ -66,6 +66,28 @@ end)
 API:listen(9091)
 ```
 
+## CORS
+
+To allow cross-origin requests, apply the CORS middleware:
+
+```lua
+MyServer:use(HttpServer.cors());
+```
+
+This will allow requests from all origins to all supported methods.
+
+For endpoints that use the :all() route, you can specify the default list of permitted methods like so:
+
+```lua
+MyServer:use(HttpServer.cors({
+  default_methods = {'GET','POST'}
+}))
+```
+
+The default set is `GET`,`HEAD`,`PUT`,`PATCH`,`POST`, and `DELETE`.
+
+*Note: do not include OPTIONS, as this is automatically included.*
+
 ## API
 
 ### HttpServer.New()

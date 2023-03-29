@@ -373,10 +373,10 @@ HttpServer = (function()
 
         for fn in pairs(Server._routes) do
           local method = fn(req);
-          if(method == 'all') then method = table.concat(config.default_methods, ','); end;
+          if(method == 'all') then method = table.concat(config.default_methods, ', '); end;
           if(method) then
             res.set('Access-Control-Allow-Origin', '*');
-            res.set('Access-Control-Allow-Method', method);
+            res.set('Access-Control-Allow-Methods', 'OPTIONS, ' .. method);
             res.sendStatus(204);
             return true;
           end;
