@@ -369,7 +369,10 @@ HttpServer = (function()
 
       return function(req, res)
 
-        if(req.method ~= 'OPTIONS') then return; end;
+        if(req.method ~= 'OPTIONS') then
+          res.set('Access-Control-Allow-Origin', '*');
+          return;
+        end;
 
         for fn in pairs(Server._routes) do
           local method = fn(req);
