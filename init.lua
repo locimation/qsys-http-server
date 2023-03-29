@@ -276,7 +276,10 @@ HttpServer = (function()
     local matchFn = function(req)
 
       -- Match method
-      if(verb ~= 'all' and req.method:lower() ~= verb) then return; end;
+      if(verb ~= 'all'
+        and req.method:lower() ~= verb
+        and req.method:upper() ~= 'OPTIONS'
+      ) then return; end;
 
       -- Match parameters
       local paramNames = {};
@@ -294,7 +297,11 @@ HttpServer = (function()
         params[k] = values[i];
       end;
 
-      return params;
+      if(req.method:upper() == 'OPTIONS') then
+        return verb:upper();
+      else
+        return params;
+      end;
 
     end;
     server._routes[matchFn] = handler;
@@ -354,9 +361,27 @@ HttpServer = (function()
         end;
       end;
     end,
-    cors = function()
+    cors = function(config)
+      config = config or {};
+
+      config.default_methods = config.default_methods
+        or {'GET','HEAD','PUT','PATCH','POST','DELETE'};
+
       return function(req, res)
-        res.set('Access-Control-Allow-Origin', '*');
+
+        if(req.method ~= 'OPTIONS') then return; end;
+
+        for fn in pairs(Server._routes) do
+          local method = fn(req);
+          if(method == 'all') then method = table.concat(config.default_methods, ','); end;
+          if(method) then
+            res.set('Access-Control-Allow-Origin', '*');
+            res.set('Access-Control-Allow-Method', method);
+            res.sendStatus(204);
+            return true;
+          end;
+        end;
+
       end;
     end,
     Static = function(root)
