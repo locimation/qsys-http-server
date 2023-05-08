@@ -268,6 +268,8 @@ HttpServer = (function()
         __index = function(t,k)
           if(k == 'Write') then
             return function(self,str)
+              if(type(str) == 'table') then str = require('rapidjson').encode(str); end;
+              if(type(str) ~= 'string') then str = tostring(str); end;
               socket:Write(frameData(str));
             end
           elseif(k == 'IsConnected') then
