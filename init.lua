@@ -93,7 +93,7 @@ HttpServer = (function()
     [511] = 'Network Authentication Required'
   };
 
-  local Base64 = (function()
+  --[[local Base64 = (function()
     local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/' -- You will need this for encoding/decoding
     -- encoding
     return {
@@ -126,7 +126,7 @@ HttpServer = (function()
         end))
       end
     };
-  end)();
+  end)();]]
 
   local Server = {
     _server = TcpSocketServer.New(),
@@ -236,7 +236,7 @@ HttpServer = (function()
 
       local client_key = req.headers['sec-websocket-key'][1];
       local response_key = Crypto.Digest('sha1', client_key .. "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-      local response_b64 = Base64.encode(response_key);
+      local response_b64 = Crypto.Base64Encode(response_key);
 
       print('WEBSOCKET (v' .. req.headers['sec-websocket-version'][1] .. ')');
 
