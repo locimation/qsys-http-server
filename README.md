@@ -1,6 +1,6 @@
 # HttpServer
 
-HttpServer is a simple HTTP server implementation for Lua. It allows you to create route handlers for different HTTP methods (GET, POST, PUT, DELETE, etc.) and serve static files. It also includes optional middleware for handling JSON and CORS.
+HttpServer is a simple HTTP server implementation for Lua. It allows you to create route handlers for different HTTP methods (GET, POST, PUT, DELETE, etc.) and serve static files. It also includes optional middleware for handling JSON and CORS, and provides an API for serving websockets. At this time, websockets are limited to server-to-client communication only; client-to-server messages are not parsed.
 
 ## Features
 
@@ -133,6 +133,9 @@ Adds a DELETE route to the server with the specified path and handler function.
 ### server:all(path, handler)
 
 Adds a route for any HTTP verb to the server with the specified path and handler function.
+
+### server:ws(path, handler)
+Adds a websocket listener at the given path. `handler` is invoked with a "Websocket" object, that has the fields `Write`, and `IsConnected`.
 
 ## License
 

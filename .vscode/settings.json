@@ -2,6 +2,8 @@
   "Lua.diagnostics.globals": [
     "TcpSocket",
     "TcpSocketServer",
-    "Timer"
+    "Timer",
+    "bitstring",
+    "Crypto"
   ]
 }
