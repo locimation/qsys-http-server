@@ -470,16 +470,16 @@ HttpServer = (function()
 
       return function(req, res)
 
-        if(req.method ~= 'OPTIONS') then
-          res.set('Access-Control-Allow-Origin', '*');
+        res.set('Access-Control-Allow-Origin', '*');
+        if(req.method:upper() ~= 'OPTIONS') then
           return;
         end;
 
         local methods = {};
         for fn in pairs(Server._routes) do
           local method = fn(req);
-          if(method == 'all') then methods = config.default_methods; break; end;
-          if(method) then
+          if(method and method ~= 'all') then
+            print(require('rapidjson').encode(method)); 
             if(not contains(methods, method)) then
               table.insert(methods, method);
             end;
@@ -487,12 +487,13 @@ HttpServer = (function()
         end;
         
         if(#methods > 0) then
-          local methods_string = table.concat(methods, ', ');
-          res.set('Access-Control-Allow-Origin', '*');
-          res.set('Access-Control-Allow-Methods', 'OPTIONS, ' .. methods_string);
-          res.sendStatus(204);
-          return true;
+          res.set('Access-Control-Allow-Methods', 'OPTIONS, ' .. table.concat(methods, ', '));
+        else
+          res.set('Access-Control-Allow-Methods', table.concat(config.default_methods, ', '));
         end; 
+
+        res.sendStatus(204);
+        return true; 
 
       end;
     end,
