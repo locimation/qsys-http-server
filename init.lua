@@ -475,16 +475,24 @@ HttpServer = (function()
           return;
         end;
 
+        local methods = {};
         for fn in pairs(Server._routes) do
           local method = fn(req);
-          if(method == 'all') then method = table.concat(config.default_methods, ', '); end;
+          if(method == 'all') then methods = config.default_methods; break; end;
           if(method) then
-            res.set('Access-Control-Allow-Origin', '*');
-            res.set('Access-Control-Allow-Methods', 'OPTIONS, ' .. method);
-            res.sendStatus(204);
-            return true;
+            if(not contains(methods, method)) then
+              table.insert(methods, method);
+            end;
           end;
         end;
+        
+        if(#methods > 0) then
+          local methods_string = table.concat(methods, ', ');
+          res.set('Access-Control-Allow-Origin', '*');
+          res.set('Access-Control-Allow-Methods', 'OPTIONS, ' .. methods_string);
+          res.sendStatus(204);
+          return true;
+        end; 
 
       end;
     end,
