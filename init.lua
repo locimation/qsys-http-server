@@ -212,11 +212,24 @@ HttpServer = (function()
       
       local socket = rawget(res, 'socket');
       socket.Data = function()
-        print('wsdata', socket:Read(1024));
+        socket:Read(socket.BufferLength); -- clear buffers
+        -- print('wsdata', socket:Read(1024));
       end;
 
       local function frameData(data)
-        local packet = bitstring.pack('1:int 3:int 4:int 1:int 7:int', 1, 0, 0x01, 0, #data);
+
+        local header_len = #data;
+        local len_suffix = '';
+        if(header_len > 65535) then
+          header_len = 127;
+          len_suffix = string.pack('>I8', #data); 
+        elseif(header_len > 125) then
+          header_len = 126;
+          len_suffix = string.pack('>I2', #data);
+        end; 
+
+        local packet = bitstring.pack('1:int 3:int 4:int 1:int 7:int', 1, 0, 0x01, 0, header_len) .. len_suffix;
+
         packet = packet .. data;
         return packet;
       end;
@@ -336,7 +349,7 @@ HttpServer = (function()
 
         for fn, handler in pairs(Server._routes) do
           local params = fn(request);
-          if(params) then
+          if(params) then 
             request.params = params;
             local ok, err = pcall(handler, request, response);
             if(not ok) then
@@ -471,6 +484,7 @@ HttpServer = (function()
       return function(req, res)
 
         res.set('Access-Control-Allow-Origin', '*');
+        res.set('Access-Control-Allow-Headers', '*');
         if(req.method:upper() ~= 'OPTIONS') then
           return;
         end;
@@ -479,7 +493,6 @@ HttpServer = (function()
         for fn in pairs(Server._routes) do
           local method = fn(req);
           if(method and method ~= 'all') then
-            print(require('rapidjson').encode(method)); 
             if(not contains(methods, method)) then
               table.insert(methods, method);
             end;
