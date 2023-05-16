@@ -386,7 +386,14 @@ HttpServer = (function()
 
       -- Match parameters
       local paramNames = {};
-      local matchPattern = route:gsub('/:([^/+]+)', function(paramName)
+
+      local matchPattern = route;
+      
+      -- escape special characters
+      matchPattern = matchPattern:gsub('([%%%*%+%-%?])', function(char) return '%'..char; end);
+
+      -- insert match patterns
+      matchPattern = matchPattern:gsub('/:([^/+]+)', function(paramName)
         table.insert(paramNames, paramName);
         return '/([^/+]+)'
       end);
