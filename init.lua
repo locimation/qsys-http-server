@@ -96,7 +96,8 @@ HttpServer = (function()
   local Server = {
     _server = TcpSocketServer.New(),
     _routes = {},
-    _middleware = {}
+    _middleware = {},
+    _dataCoroutines = {}
   }
 
   local function respond(sock, code, body, options)
@@ -263,6 +264,108 @@ HttpServer = (function()
     end
   }
 
+  local function dataHandler(Sock)
+
+    local function read()
+      while(Sock:Search('\r\n') == 1) do Sock:Read(2); end;
+      return Sock:ReadLine(TcpSocket.EOL.Custom, '\r\n\r\n');
+    end;
+    for line in read do
+      local verb, resource, proto, headerString = line:match('^(%u+) ([^ ]+) HTTP/(%d%.%d)\r\n(.*)');
+
+      -- Parse headers
+      local headers = {};
+      while(#headerString > 0) do
+
+        local k,v;
+        k,v,headerString = headerString:match('^([^:]+):[\t ]?([^\r\n]+)(.*)');
+        if(not k) then return respond(Sock, 400); end;
+
+        if(headerString:sub(1,2) == '\r\n') then headerString = headerString:sub(3); end;
+
+        k = k:lower();
+        if(headers[k]) then
+          table.insert(headers[k], v);
+        else
+          headers[k] = {v};
+        end;
+
+      end;
+
+      -- Host header must be present for HTTP 1.1
+      if(proto == '1.1' and not headers['host']) then
+        respond(Sock, 400);
+      end;
+
+      -- Host header must only be present once for HTTP 1.1
+      if(proto == '1.1' and #headers['host'] ~= 1) then
+        respond(Sock, 400);
+      end;
+
+      -- Apply host header if resource is not HTTP URI
+      local host = resource:match('^http://([^/]+)');
+      if(not host) then host = headers['host'][1]; end;
+
+      -- Check for transfer encoding
+      if(headers['transfer-encoding']) then
+        Sock:Disconnect();
+        -- TODO: implement transfer-encoding
+        error('TODO: implement transfer-encoding.');
+      end;
+
+      -- Check for request body
+      local body = '';
+      if(headers['content-length']) then
+        local expectedBodyLength = tonumber(headers['content-length'][1]);
+        if(not expectedBodyLength) then return respond(Sock, 400); end;
+
+        body = body .. Sock:Read(expectedBodyLength);
+        while(#body < expectedBodyLength) do
+          coroutine.yield();
+          body = body .. Sock:Read(expectedBodyLength);
+        end;
+
+      end;
+
+      local request = HttpRequest.New({
+        method = verb,
+        path = resource,
+        headers = headers,
+        body = body
+      });
+
+      local response = HttpResponse.New({
+        socket = Sock
+      });
+
+      for _,middleware in ipairs(Server._middleware) do
+        if(request.path:match('^' .. middleware.path)) then
+          local handled = middleware.fn(request, response);
+          if(handled) then return; end;
+        end;
+      end;
+
+      -- print(verb, host, resource, proto, (body and #body), require('rapidjson').encode(headers));
+
+      for fn, handler in pairs(Server._routes) do
+        local params = fn(request);
+        if(params) then 
+          request.params = params;
+          local ok, err = pcall(handler, request, response);
+          if(not ok) then
+            response.status(500).send(err);
+            print('SERVER ERROR: ' .. err);
+          end;
+          return;
+        end;
+      end;
+
+      defaultHandler(request, response);
+
+    end;
+
+  end;
+
   Server._server.EventHandler = function(Sock)
 
     print('CONNECTION');
@@ -270,99 +373,18 @@ HttpServer = (function()
 
     Sock.Data = function()
 
-      local function read()
-        while(Sock:Search('\r\n') == 1) do Sock:Read(2); end;
-        return Sock:ReadLine(TcpSocket.EOL.Custom, '\r\n\r\n');
+      local function setupCoroutine()
+        Server._dataCoroutines[Sock] = coroutine.create(dataHandler);
       end;
-      for line in read do
-        local verb, resource, proto, headerString = line:match('^(%u+) ([^ ]+) HTTP/(%d%.%d)\r\n(.*)');
 
-        -- Parse headers
-        local headers = {};
-        while(#headerString > 0) do
+      if(not Server._dataCoroutines[Sock]) then
+        setupCoroutine();
+      elseif(coroutine.status(Server._dataCoroutines[Sock]) == "dead") then
+        setupCoroutine();
+      end
 
-          local k,v;
-          k,v,headerString = headerString:match('^([^:]+):[\t ]?([^\r\n]+)(.*)');
-          if(not k) then return respond(Sock, 400); end;
-
-          if(headerString:sub(1,2) == '\r\n') then headerString = headerString:sub(3); end;
-
-          k = k:lower();
-          if(headers[k]) then
-            table.insert(headers[k], v);
-          else
-            headers[k] = {v};
-          end;
-
-        end;
-
-        -- Host header must be present for HTTP 1.1
-        if(proto == '1.1' and not headers['host']) then
-          respond(Sock, 400);
-        end;
-
-        -- Host header must only be present once for HTTP 1.1
-        if(proto == '1.1' and #headers['host'] ~= 1) then
-          respond(Sock, 400);
-        end;
-
-        -- Apply host header if resource is not HTTP URI
-        local host = resource:match('^http://([^/]+)');
-        if(not host) then host = headers['host'][1]; end;
-
-        -- Check for transfer encoding
-        if(headers['transfer-encoding']) then
-          Sock:Disconnect();
-          error('TODO: implement transfer-encoding.');
-        end;
-
-        -- Check for request body
-        local body;
-        if(headers['content-length']) then
-          local expectedBodyLength = tonumber(headers['content-length'][1]);
-          if(not expectedBodyLength) then return respond(Sock, 400); end;
-          if(Sock.BufferLength < expectedBodyLength) then
-            error('TODO: implement state machine. Received: ' .. Sock.BufferLength .. ', expect ' .. expectedBodyLength);
-          end;
-          body = Sock:Read(expectedBodyLength);
-        end;
-
-        local request = HttpRequest.New({
-          method = verb,
-          path = resource,
-          headers = headers,
-          body = body
-        });
-
-        local response = HttpResponse.New({
-          socket = Sock
-        });
-
-        for _,middleware in ipairs(Server._middleware) do
-          if(request.path:match('^' .. middleware.path)) then
-            local handled = middleware.fn(request, response);
-            if(handled) then return; end;
-          end;
-        end;
-
-        -- print(verb, host, resource, proto, (body and #body), require('rapidjson').encode(headers));
-
-        for fn, handler in pairs(Server._routes) do
-          local params = fn(request);
-          if(params) then 
-            request.params = params;
-            local ok, err = pcall(handler, request, response);
-            if(not ok) then
-              response.status(500).send(err);
-              print('SERVER ERROR: ' .. err);
-            end;
-            return;
-          end;
-        end;
-
-        defaultHandler(request, response);
-
-      end;
+      local ok, err = coroutine.resume(Server._dataCoroutines[Sock], Sock);
+      if(not ok) then error(err); end; 
 
     end;
 
