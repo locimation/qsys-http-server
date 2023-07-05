@@ -368,7 +368,7 @@ HttpServer = (function()
 
   Server._server.EventHandler = function(Sock)
 
-    print('CONNECTION');
+    print('CONNECTION'); 
     Sock.EventHandler = print;
 
     Sock.Data = function()
