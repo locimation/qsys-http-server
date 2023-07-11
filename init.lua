@@ -330,7 +330,8 @@ HttpServer = (function()
 
       local request = HttpRequest.New({
         method = verb,
-        path = resource,
+        path = resource:match('^([^?]+)'),
+        query = resource:match('%?(.+)$'),
         headers = headers,
         body = body
       });
