@@ -161,6 +161,7 @@ HttpServer = (function()
           elseif(k == 'set') then
             return function(k,v)
               t.headers[k] = v;
+              return t;
             end
           elseif(k == 'sendStatus') then
             return function(code)
@@ -510,10 +511,15 @@ HttpServer = (function()
       config.default_methods = config.default_methods
         or {'GET','HEAD','PUT','PATCH','POST','DELETE'};
 
+      config.default_headers = config.default_headers or {'*'};
+
       return function(req, res)
 
         res.set('Access-Control-Allow-Origin', '*');
-        res.set('Access-Control-Allow-Headers', '*');
+        res.set(
+          'Access-Control-Allow-Headers',
+          table.concat(config.default_headers, ', ')
+        );
         if(req.method:upper() ~= 'OPTIONS') then
           return;
         end;
