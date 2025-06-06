@@ -93,6 +93,25 @@ HttpServer = (function()
     [511] = 'Network Authentication Required'
   };
 
+ local MIME_HEADERS = {
+    ['json'] = 'application/json',
+    ['js'  ] = 'text/javascript',
+    ['ts'  ] = 'text/javascript',
+    ['zip' ] = 'application/zip',
+    ['txt' ] = 'text/plain',
+    ['htm' ] = 'text/html',
+    ['html'] = 'text/html',
+    ['css' ] = 'text/css',
+    ['csv' ] = 'text/csv',
+    ['mpeg'] = 'audio/mpeg',
+    ['ttf' ] = 'font/ttf',
+    ['jpeg'] = 'image/jpeg',
+    ['png' ] = 'image/png',
+    ['gif' ] = 'image/gif',
+    ['svg' ] = 'image/svg+xm',
+    ['mp4' ] = 'video/mp4',
+  };
+
   local Server = {
     _server = TcpSocketServer.New(),
     _routes = {},
@@ -553,6 +572,8 @@ HttpServer = (function()
         if(not fh) then return; end;
         local data = fh:read('*all');
         fh:close();
+        local extension = req.path:match("^.+%.(.+)$")
+        if MIME_HEADERS[extension] then res.set('Content-Type', MIME_HEADERS[extension]); end
         res.send(data);
         return true; -- handled
       end
