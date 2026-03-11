@@ -1253,6 +1253,8 @@ HttpServer = (function()
             end
           elseif(k == 'IsConnected') then
             return socket.IsConnected;
+          elseif(k == 'PeerAddress') then
+            return socket.PeerAddress;
           else
             error('Property "' .. k .. ' does not exist on WebSocket.');
           end;
@@ -1336,7 +1338,8 @@ HttpServer = (function()
         path = resource:match('^([^?]+)'),
         query = resource:match('%?(.+)$'),
         headers = headers,
-        body = body
+        body = body,
+        peeraddress = Sock.PeerAddress
       });
 
       local response = HttpResponse.New({
