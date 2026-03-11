@@ -2,6 +2,8 @@
 
 HttpServer = (function()
 
+  local json = require('rapidjson');
+
   local HTTP_METHODS = {
     'CHECKOUT',
     'COPY',
@@ -1101,7 +1103,7 @@ HttpServer = (function()
     if(body == nil) then
       -- do nothing
     elseif(type(body) == 'table') then
-      body = require('rapidjson').encode(body);
+      body = json.encode(body);
     elseif(type(body) ~= 'string') then
       body = tostring(body);
     end;
@@ -1204,7 +1206,7 @@ HttpServer = (function()
       local response_key = Crypto.Digest('sha1', client_key .. "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
       local response_b64 = Crypto.Base64Encode(response_key);
 
-      print('WEBSOCKET (v' .. req.headers['sec-websocket-version'][1] .. ')');
+      -- print('WEBSOCKET (v' .. req.headers['sec-websocket-version'][1] .. ')');
 
       res.headers['Upgrade'] = 'websocket';
       res.headers['Connection'] = 'Upgrade';
@@ -1247,7 +1249,7 @@ HttpServer = (function()
         __index = function(t,k)
           if(k == 'Write') then
             return function(self,str)
-              if(type(str) == 'table') then str = require('rapidjson').encode(str); end;
+              if(type(str) == 'table') then str = json.encode(str); end;
               if(type(str) ~= 'string') then str = tostring(str); end;
               socket:Write(frameData(str));
             end
@@ -1353,8 +1355,6 @@ HttpServer = (function()
         end;
       end;
 
-      -- print(verb, host, resource, proto, (body and #body), require('rapidjson').encode(headers));
-
       for fn, handler in pairs(Server._routes) do
         local params = fn(request);
         if(params) then 
@@ -1376,7 +1376,7 @@ HttpServer = (function()
 
   Server._server.EventHandler = function(Sock)
 
-    print('CONNECTION'); 
+    -- print('CONNECTION'); 
     Sock.EventHandler = print;
 
     Sock.Data = function()
@@ -1508,7 +1508,7 @@ HttpServer = (function()
     json = function()
       return function(req, res)
         if(req.headers['content-type'] and req.headers['content-type'][1] == 'application/json') then
-          req.body = require('rapidjson').decode(req.body);
+          req.body = json.decode(req.body);
         end;
       end;
     end,
