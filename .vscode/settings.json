@@ -4,6 +4,7 @@
     "TcpSocketServer",
     "Timer",
     "bitstring",
-    "Crypto"
+    "Crypto",
+    "HttpClient"
   ]
 }

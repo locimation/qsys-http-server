@@ -1094,8 +1094,23 @@ HttpServer = (function()
     _server = TcpSocketServer.New(),
     _routes = {},
     _middleware = {},
-    _dataCoroutines = {}
+    _connStates = {},
+    _cleanupTimer = Timer.New()
   }
+
+  -- Clean up closed sockets
+  Server._cleanupTimer.EventHandler = function()
+    local closed_sockets = {};
+    for sock in pairs(Server._connStates) do
+      if(not sock.IsConnected) then
+        table.insert(closed_sockets, sock);
+      end;
+    end;
+    for _, sock in ipairs(closed_sockets) do
+      Server._connStates[sock] = nil;
+    end;
+  end;
+  Server._cleanupTimer:Start(1);
 
   local function respond(sock, code, body, options)
     options = options or {};
@@ -1130,7 +1145,9 @@ HttpServer = (function()
         code, HTTP_CODES[code], headerString, (body ~= nil) and body or ''
       )
     )
-    if(not options.keepalive) then Timer.CallAfter(function() sock:Disconnect(); end, 1); end; -- workaround for non-blocking write
+    if(not options.keepalive) then Timer.CallAfter(function()
+      sock:Disconnect();
+    end, 1); end; -- workaround for non-blocking write
   end;
 
   local function defaultHandler(req, res)
@@ -1214,9 +1231,9 @@ HttpServer = (function()
       res.status(101).send()
       
       local socket = rawget(res, 'socket');
-      socket.Data = function()
-        socket:Read(socket.BufferLength); -- clear buffers
-        -- print('wsdata', socket:Read(1024));
+      socket.Data = function(sock)
+        sock:Read(sock.BufferLength); -- clear buffers
+        -- print('wsdata', sock:Read(1024));
       end;
 
       local function frameData(data)
@@ -1268,32 +1285,68 @@ HttpServer = (function()
     end
   }
 
-  local function dataHandler(Sock)
+  local function dispatchRequest(Sock, method, resource, proto, headers, body)
+    local request = HttpRequest.New({
+      method = method,
+      path = resource:match('^([^?]+)'),
+      query = resource:match('%?(.+)$'),
+      headers = headers,
+      body = body,
+      peeraddress = Sock.PeerAddress
+    });
 
-    local function read()
-      while(Sock:Search('\r\n') == 1) do Sock:Read(2); end;
-      return Sock:ReadLine(TcpSocket.EOL.Custom, '\r\n\r\n');
+    local response = HttpResponse.New({
+      socket = Sock
+    });
+
+    for _,middleware in ipairs(Server._middleware) do
+      if(request.path:match('^' .. middleware.path)) then
+        local handled = middleware.fn(request, response);
+        if(handled) then return; end;
+      end;
     end;
-    for line in read do
+
+    for fn, handler in pairs(Server._routes) do
+      local params = fn(request);
+      if(params) then
+        request.params = params;
+        local ok, err = pcall(handler, request, response);
+        if(not ok) then
+          response.status(500).send(err);
+          print('SERVER ERROR: ' .. err);
+        end;
+        return;
+      end;
+    end;
+
+    defaultHandler(request, response);
+  end;
+
+  local function stepConnection(Sock, st)
+    if(st.state == 'headers') then
+      -- Strip leading blank lines
+      while(Sock:Search('\r\n') == 1) do Sock:Read(2); end;
+      -- Wait until full header block is available
+      if(not Sock:Search('\r\n\r\n')) then return false; end;
+      local line = Sock:ReadLine(TcpSocket.EOL.Custom, '\r\n\r\n');
+      if(not line) then return false; end;
+
       local verb, resource, proto, headerString = line:match('^(%u+) ([^ ]+) HTTP/(%d%.%d)\r\n(.*)');
+      if(not verb) then respond(Sock, 400); return false; end;
 
       -- Parse headers
       local headers = {};
       while(#headerString > 0) do
-
-        local k,v;
-        k,v,headerString = headerString:match('^([^:]+):[\t ]?([^\r\n]+)(.*)');
-        if(not k) then return respond(Sock, 400); end;
-
+        local k, v;
+        k, v, headerString = headerString:match('^([^:]+):[\t ]?([^\r\n]+)(.*)');
+        if(not k) then respond(Sock, 400); return false; end;
         if(headerString:sub(1,2) == '\r\n') then headerString = headerString:sub(3); end;
-
         k = k:lower();
         if(headers[k]) then
           table.insert(headers[k], v);
         else
           headers[k] = {v};
         end;
-
       end;
 
       -- Host header must be present for HTTP 1.1
@@ -1308,7 +1361,7 @@ HttpServer = (function()
 
       -- Apply host header if resource is not HTTP URI
       local host = resource:match('^http://([^/]+)');
-      if(not host) then host = headers['host'][1]; end;
+      if(not host) then host = headers['host'] and headers['host'][1]; end;
 
       -- Check for transfer encoding
       if(headers['transfer-encoding']) then
@@ -1317,83 +1370,52 @@ HttpServer = (function()
         error('TODO: implement transfer-encoding.');
       end;
 
-      -- Check for request body
-      local body = '';
+      -- Transition to body state if content-length is present
       if(headers['content-length']) then
         local expectedBodyLength = tonumber(headers['content-length'][1]);
-        if(not expectedBodyLength) then return respond(Sock, 400); end;
-
-        while(#body < expectedBodyLength) do
-          local remainingBytes = expectedBodyLength - #body;
-          local chunk = Sock:Read(remainingBytes);
-          if(chunk and #chunk > 0) then
-            body = body .. chunk;
-          else
-            coroutine.yield();
-          end;
-        end;
-
+        if(not expectedBodyLength) then respond(Sock, 400); return false; end;
+        st.state = 'body';
+        st.method = verb;
+        st.resource = resource;
+        st.proto = proto;
+        st.headers = headers;
+        st.body = '';
+        st.expectedBodyLength = expectedBodyLength;
+        return true; -- immediately attempt body read
+      else
+        dispatchRequest(Sock, verb, resource, proto, headers, '');
+        st.state = 'headers';
+        return true; -- might have pipelined request
       end;
-
-      local request = HttpRequest.New({
-        method = verb,
-        path = resource:match('^([^?]+)'),
-        query = resource:match('%?(.+)$'),
-        headers = headers,
-        body = body,
-        peeraddress = Sock.PeerAddress
-      });
-
-      local response = HttpResponse.New({
-        socket = Sock
-      });
-
-      for _,middleware in ipairs(Server._middleware) do
-        if(request.path:match('^' .. middleware.path)) then
-          local handled = middleware.fn(request, response);
-          if(handled) then return; end;
-        end;
-      end;
-
-      for fn, handler in pairs(Server._routes) do
-        local params = fn(request);
-        if(params) then 
-          request.params = params;
-          local ok, err = pcall(handler, request, response);
-          if(not ok) then
-            response.status(500).send(err);
-            print('SERVER ERROR: ' .. err);
-          end;
-          return;
-        end;
-      end;
-
-      defaultHandler(request, response);
-
     end;
 
+    if(st.state == 'body') then
+      local remaining = st.expectedBodyLength - #st.body;
+      local chunk = Sock:Read(remaining);
+      if(chunk and #chunk > 0) then
+        st.body = st.body .. chunk;
+      end;
+      if(#st.body >= st.expectedBodyLength) then
+        dispatchRequest(Sock, st.method, st.resource, st.proto, st.headers, st.body);
+        st.state = 'headers';
+        return true; -- might have pipelined request
+      end;
+      return false;
+    end;
+
+    return false;
   end;
 
   Server._server.EventHandler = function(Sock)
 
-    -- print('CONNECTION'); 
+    -- print('CONNECTION');
     Sock.EventHandler = print;
 
-    Sock.Data = function()
-
-      local function setupCoroutine()
-        Server._dataCoroutines[Sock] = coroutine.create(dataHandler);
+    Sock.Data = function(sock)
+      if(not Server._connStates[sock]) then
+        Server._connStates[sock] = { state = 'headers' };
       end;
-
-      if(not Server._dataCoroutines[Sock]) then
-        setupCoroutine();
-      elseif(coroutine.status(Server._dataCoroutines[Sock]) == "dead") then
-        setupCoroutine();
-      end
-
-      local ok, err = coroutine.resume(Server._dataCoroutines[Sock], Sock);
-      if(not ok) then error(err); end; 
-
+      while stepConnection(sock, Server._connStates[sock]) do end;
     end;
 
   end;
